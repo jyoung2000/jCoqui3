@@ -30,17 +30,18 @@ RUN pip install --upgrade pip setuptools wheel
 
 # Copy and install Python dependencies
 WORKDIR /build
-COPY requirements.txt .
+
+# Copy ALL requirements files first (setup.py needs them)
+COPY requirements*.txt ./
+
+# Install main requirements
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy TTS source files
+# Copy TTS source files and setup files
 COPY TTS/ ./TTS/
 COPY setup.py pyproject.toml MANIFEST.in ./
 
-# Copy additional requirements files that setup.py expects
-COPY requirements*.txt ./
-
-# Install TTS
+# Install TTS package
 RUN pip install --no-cache-dir -e .
 
 # Stage 2: Runtime Environment
