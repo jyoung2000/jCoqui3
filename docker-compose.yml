@@ -1,0 +1,37 @@
+services:
+  coqui-tts-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "2201:2201"
+    volumes:
+      - ./data/models:/app/models
+      - ./data/voices:/app/voices
+      - ./data/outputs:/app/outputs
+      - ./data/uploads:/app/uploads
+    environment:
+      - PYTHONUNBUFFERED=1
+      - TTS_MODELS_DIR=/app/models
+      - TTS_VOICES_DIR=/app/voices
+      - TTS_OUTPUTS_DIR=/app/outputs
+      - TTS_UPLOADS_DIR=/app/uploads
+      - FLASK_ENV=production
+      - PORT=2201
+      - NUMBA_CACHE_DIR=/tmp/numba_cache
+      - NUMBA_DISABLE_JIT=0
+    restart: unless-stopped
+    container_name: coqui-tts-web
+    command: ["python", "/app/web_server/app.py"]
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
+
+  # Optional: Redis for caching (if needed for performance)
+  # redis:
+  #   image: redis:alpine
+  #   container_name: coqui-tts-redis
+  #   restart: unless-stopped

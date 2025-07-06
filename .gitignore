@@ -1,0 +1,9 @@
+# Data directories
+data/models/
+data/voices/
+data/outputs/
+data/uploads/
+__pycache__/
+*.pyc
+.cache/
+.TTS/

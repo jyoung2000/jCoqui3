@@ -1,0 +1,85 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+.gitmodules
+
+# Documentation
+*.md
+docs/
+notebooks/
+images/
+
+# Tests
+tests/
+test_*.py
+*_test.py
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Data directories (will be mounted as volumes)
+data/
+models/
+voices/
+outputs/
+uploads/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+.tmp/
+
+# Recipe files (not needed in container)
+recipes/
+
+# Development files
+requirements.dev.txt
+requirements.notebooks.txt
+verify_container.sh
+run_bash_tests.sh
+scripts/

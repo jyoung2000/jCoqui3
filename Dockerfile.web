@@ -1,0 +1,98 @@
+# Optimized Multi-stage Dockerfile for Coqui TTS Web Interface
+# Stage 1: Python Dependencies Builder
+FROM python:3.10-slim as python-builder
+
+# Set build environment
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies for building Python packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
+    git \
+    wget \
+    curl \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create and activate virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Upgrade pip and install build tools
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
+
+# Copy requirements and install Python dependencies
+COPY requirements.txt requirements.web.txt ./
+RUN pip install --no-cache-dir -r requirements.web.txt
+
+# Install TTS from source (copy only necessary files)
+COPY TTS/ /TTS/
+COPY setup.py pyproject.toml MANIFEST.in ./
+RUN pip install --no-cache-dir -e .
+
+# Stage 2: Runtime Environment
+FROM python:3.10-slim
+
+# Set runtime environment
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV NUMBA_CACHE_DIR=/tmp/numba_cache
+ENV NUMBA_DISABLE_JIT=0
+ENV TTS_CACHE_DIR=/app/models/.cache
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    espeak-ng \
+    espeak-data \
+    libsndfile1 \
+    ffmpeg \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Copy virtual environment from builder
+COPY --from=python-builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Create app directory and required subdirectories
+WORKDIR /app
+RUN mkdir -p \
+    /app/models \
+    /app/voices \
+    /app/outputs \
+    /app/uploads \
+    /app/web_server \
+    /app/static \
+    /tmp/numba_cache \
+    /app/models/.cache
+
+# Copy application files
+COPY TTS/ /app/TTS/
+COPY web_server/ /app/web_server/
+COPY --from=python-builder /opt/venv/lib/python3.10/site-packages/TTS* /opt/venv/lib/python3.10/site-packages/
+
+# Set Python path
+ENV PYTHONPATH="/app:${PYTHONPATH}"
+
+# Create non-root user for security
+RUN groupadd -r ttsuser && useradd -r -g ttsuser ttsuser \
+    && chown -R ttsuser:ttsuser /app /tmp/numba_cache /opt/venv
+
+# Switch to non-root user
+USER ttsuser
+
+# Expose port 2201
+EXPOSE 2201
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:2201/health || exit 1
+
+# Default command
+CMD ["python", "/app/web_server/app.py"]
