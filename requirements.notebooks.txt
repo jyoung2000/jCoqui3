@@ -1,1 +1,5 @@
-bokeh==1.4.0
+# Jupyter notebook dependencies for TTS development and analysis
+bokeh>=2.0.0
+jupyter>=1.0.0
+matplotlib>=3.5.0
+seaborn>=0.11.0

@@ -34,6 +34,9 @@ WORKDIR /build
 # Copy ALL requirements files first (setup.py needs them)
 COPY requirements*.txt ./
 
+# Debug: List copied files to verify
+RUN ls -la requirements*.txt
+
 # Install main requirements
 RUN pip install --no-cache-dir -r requirements.txt
 
