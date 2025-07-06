@@ -15,7 +15,7 @@ done
 
 echo ""
 echo "📂 Core files:"
-for file in setup.py pyproject.toml MANIFEST.in; do
+for file in setup.py pyproject.toml MANIFEST.in README.md; do
     if [ -f "$file" ]; then
         echo "  ✅ $file"
     else

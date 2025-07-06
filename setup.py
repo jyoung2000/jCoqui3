@@ -76,8 +76,13 @@ requirements_dev = read_requirements_file("requirements.dev.txt")
 requirements_ja = read_requirements_file("requirements.ja.txt")
 requirements_all = requirements_dev + requirements_notebooks + requirements_ja
 
-with open("README.md", "r", encoding="utf-8") as readme_file:
-    README = readme_file.read()
+# Read README.md with graceful error handling
+try:
+    with open("README.md", "r", encoding="utf-8") as readme_file:
+        README = readme_file.read()
+except FileNotFoundError:
+    print("Warning: README.md not found, using fallback description")
+    README = "Coqui TTS - A library for advanced Text-to-Speech generation"
 
 exts = [
     Extension(

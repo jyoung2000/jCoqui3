@@ -41,10 +41,21 @@ def test_requirements_files():
     
     if all_good:
         print("✅ All requirements files can be read successfully!")
-        return True
     else:
         print("❌ Some requirements files have issues")
-        return False
+        all_good = False
+    
+    # Test README.md reading
+    print("\n🔍 Testing README.md reading...")
+    try:
+        with open("README.md", "r", encoding="utf-8") as readme_file:
+            readme_content = readme_file.read()
+            print(f"  ✅ README.md: {len(readme_content)} characters")
+    except FileNotFoundError:
+        print("  ❌ README.md: not found")
+        all_good = False
+    
+    return all_good
 
 def test_setup_imports():
     """Test that setup.py can import and run"""
