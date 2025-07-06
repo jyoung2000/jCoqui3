@@ -1,37 +1,55 @@
+version: '3.8'
+
 services:
   coqui-tts-web:
     build:
       context: .
-      dockerfile: Dockerfile.web
+      dockerfile: Dockerfile
+    container_name: coqui-tts-web
     ports:
       - "2201:2201"
     volumes:
-      - ./data/models:/app/models
-      - ./data/voices:/app/voices
-      - ./data/outputs:/app/outputs
-      - ./data/uploads:/app/uploads
+      # Model cache - persists downloaded models
+      - tts-models:/app/models
+      # Voice profiles - persists cloned voices
+      - tts-voices:/app/voices
+      # Generated outputs - persists synthesized audio
+      - tts-outputs:/app/outputs
+      # Temporary uploads
+      - tts-uploads:/app/uploads
     environment:
-      - PYTHONUNBUFFERED=1
+      - PORT=2201
       - TTS_MODELS_DIR=/app/models
       - TTS_VOICES_DIR=/app/voices
       - TTS_OUTPUTS_DIR=/app/outputs
       - TTS_UPLOADS_DIR=/app/uploads
-      - FLASK_ENV=production
-      - PORT=2201
+      - PYTHONUNBUFFERED=1
+      - TTS_HOME=/app/models
       - NUMBA_CACHE_DIR=/tmp/numba_cache
-      - NUMBA_DISABLE_JIT=0
     restart: unless-stopped
-    container_name: coqui-tts-web
-    command: ["python", "/app/web_server/app.py"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:2201/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     deploy:
       resources:
         limits:
           memory: 4G
         reservations:
           memory: 2G
+    labels:
+      - "com.coqui.tts.description=Coqui TTS with Web GUI"
+      - "com.coqui.tts.version=1.0.0"
+      - "com.coqui.tts.author=jyoung2000"
 
-  # Optional: Redis for caching (if needed for performance)
-  # redis:
-  #   image: redis:alpine
-  #   container_name: coqui-tts-redis
-  #   restart: unless-stopped
+volumes:
+  tts-models:
+    driver: local
+  tts-voices:
+    driver: local
+  tts-outputs:
+    driver: local
+  tts-uploads:
+    driver: local
