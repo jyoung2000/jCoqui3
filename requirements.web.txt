@@ -2,6 +2,7 @@
 flask>=2.0.1
 flask-cors>=4.0.0
 werkzeug>=2.0.0
+requests>=2.28.0
 
 # Audio processing for web interface
 librosa>=0.10.0

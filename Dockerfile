@@ -1,6 +1,6 @@
 # Optimized Multi-stage Dockerfile for Coqui TTS Web Interface
 # This version is optimized for CPU usage and Docker Desktop testing
-FROM python:3.10-slim as builder
+FROM python:3.10-slim AS builder
 
 # Set build environment
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -36,6 +36,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy TTS source files
 COPY TTS/ ./TTS/
 COPY setup.py pyproject.toml MANIFEST.in ./
+
+# Copy additional requirements files that setup.py expects
+COPY requirements*.txt ./
 
 # Install TTS
 RUN pip install --no-cache-dir -e .
@@ -99,7 +102,7 @@ EXPOSE 2201
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -f http://localhost:2201/health || exit 1
+    CMD python /app/web_server/health_check.py || exit 1
 
 # Default command
 CMD ["python", "-m", "web_server.app"]
