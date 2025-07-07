@@ -759,6 +759,39 @@ def get_model_type(model_name):
     else:
         return 'standard'
 
+def _parse_unified_voice_id(voice_id):
+    """Parse unified voice ID to get model and voice configuration"""
+    try:
+        # Get unified voices to find the matching voice
+        response = get_unified_voices()
+        if hasattr(response, 'get_json'):
+            voices_data = response.get_json()
+        else:
+            voices_data = response
+            
+        if not voices_data.get('success'):
+            return {}
+            
+        # Find the voice by ID
+        for voice in voices_data.get('voices', []):
+            if voice['id'] == voice_id:
+                config = {
+                    'model': voice['model'],
+                    'language': voice['language']
+                }
+                
+                if voice['type'] == 'coqui_speaker':
+                    config['coqui_speaker'] = voice['speaker']
+                elif voice['type'] == 'custom_voice':
+                    config['voice_profile'] = voice['voice_profile']
+                    
+                return config
+                
+        return {}
+    except Exception as e:
+        logger.error(f"Error parsing unified voice ID {voice_id}: {e}")
+        return {}
+
 # Routes
 @app.route('/')
 def index():
@@ -1016,12 +1049,142 @@ def get_voices():
     """Get saved voice profiles"""
     return jsonify(voice_profiles)
 
+@app.route('/api/unified_voices')
+def get_unified_voices():
+    """Get all available voices in one unified list for simplified UX"""
+    try:
+        unified_voices = []
+        
+        # Add TTS Model voices (featured models)
+        featured_models = [
+            {
+                'id': 'xtts_v2_default',
+                'name': '🎭 XTTS v2 - Voice Cloning Master',
+                'type': 'tts_model',
+                'model': 'tts_models/multilingual/multi-dataset/xtts_v2',
+                'description': 'Best for voice cloning and emotional expression. Works in 16+ languages.',
+                'capabilities': ['voice_cloning', 'emotions', 'multilingual'],
+                'language': 'multilingual',
+                'category': 'AI Models'
+            },
+            {
+                'id': 'bark_default',
+                'name': '😊 Bark - Emotional Storyteller',
+                'type': 'tts_model', 
+                'model': 'tts_models/multilingual/multi-dataset/bark',
+                'description': 'Perfect for emotional, expressive speech with natural inflections.',
+                'capabilities': ['emotions', 'multilingual'],
+                'language': 'multilingual',
+                'category': 'AI Models'
+            },
+            {
+                'id': 'tortoise_default',
+                'name': '🔄 Tortoise - High Quality English',
+                'type': 'tts_model',
+                'model': 'tts_models/en/multi-dataset/tortoise-v2', 
+                'description': 'Ultra-high quality English voices with customizable presets.',
+                'capabilities': ['voice_cloning', 'high_quality'],
+                'language': 'en',
+                'category': 'AI Models'
+            }
+        ]
+        
+        # Add quick language-specific models
+        language_models = [
+            {'id': 'en_fast', 'name': '⚡ English - Fast & Clear', 'model': 'tts_models/en/ljspeech/glow-tts', 'language': 'en'},
+            {'id': 'es_spanish', 'name': '🇪🇸 Spanish Voice', 'model': 'tts_models/es/mai/tacotron2-DDC', 'language': 'es'},
+            {'id': 'fr_french', 'name': '🇫🇷 French Voice', 'model': 'tts_models/fr/mai/tacotron2-DDC', 'language': 'fr'},
+            {'id': 'de_german', 'name': '🇩🇪 German Voice', 'model': 'tts_models/de/thorsten/tacotron2-DDC', 'language': 'de'},
+            {'id': 'it_italian', 'name': '🇮🇹 Italian Voice', 'model': 'tts_models/it/mai/tacotron2-DDC', 'language': 'it'},
+            {'id': 'pt_portuguese', 'name': '🇵🇹 Portuguese Voice', 'model': 'tts_models/pt/cv/vits', 'language': 'pt'},
+            {'id': 'ru_russian', 'name': '🇷🇺 Russian Voice', 'model': 'tts_models/ru/ruslan/tacotron2-DDC', 'language': 'ru'},
+            {'id': 'zh_chinese', 'name': '🇨🇳 Chinese Voice', 'model': 'tts_models/zh/baker/tacotron2-DDC-GST', 'language': 'zh'},
+            {'id': 'ja_japanese', 'name': '🇯🇵 Japanese Voice', 'model': 'tts_models/ja/kokoro/tacotron2-DDC', 'language': 'ja'},
+            {'id': 'ko_korean', 'name': '🇰🇷 Korean Voice', 'model': 'tts_models/ko/kss/glow-tts', 'language': 'ko'}
+        ]
+        
+        for model in language_models:
+            featured_models.append({
+                'id': model['id'],
+                'name': model['name'],
+                'type': 'tts_model',
+                'model': model['model'],
+                'description': f"Native {model['language'].upper()} voice optimized for clarity and speed.",
+                'capabilities': ['fast', 'native_language'],
+                'language': model['language'],
+                'category': 'Language Models'
+            })
+        
+        unified_voices.extend(featured_models)
+        
+        # Add Coqui pre-trained speakers
+        for speaker_name, speaker_info in coqui_speakers.items():
+            unified_voices.append({
+                'id': f'coqui_{speaker_name.lower().replace(" ", "_")}',
+                'name': f'👤 {speaker_name}',
+                'type': 'coqui_speaker',
+                'speaker': speaker_name,
+                'model': 'tts_models/multilingual/multi-dataset/xtts_v2',  # Coqui speakers use XTTS v2
+                'description': speaker_info.get('description', f'{speaker_info.get("gender", "").title()} {speaker_info.get("language", "").upper()} speaker'),
+                'capabilities': ['voice_cloning', 'emotions', 'multilingual'],
+                'language': speaker_info.get('language', 'en'),
+                'category': 'Pre-trained Speakers',
+                'gender': speaker_info.get('gender'),
+                'accent': speaker_info.get('accent')
+            })
+        
+        # Add custom voice profiles
+        for voice_name, voice_info in voice_profiles.items():
+            unified_voices.append({
+                'id': f'custom_{voice_name.lower().replace(" ", "_")}',
+                'name': f'🎤 {voice_name} (Custom)',
+                'type': 'custom_voice',
+                'voice_profile': voice_name,
+                'model': 'tts_models/multilingual/multi-dataset/xtts_v2',  # Custom voices use XTTS v2
+                'description': f'Your custom cloned voice: {voice_name}',
+                'capabilities': ['voice_cloning', 'emotions', 'multilingual'],
+                'language': 'multilingual',
+                'category': 'Your Custom Voices',
+                'created_at': voice_info.get('created_at')
+            })
+        
+        # Group voices by category for easy selection
+        grouped_voices = {}
+        for voice in unified_voices:
+            category = voice['category']
+            if category not in grouped_voices:
+                grouped_voices[category] = []
+            grouped_voices[category].append(voice)
+        
+        return jsonify({
+            'success': True,
+            'voices': unified_voices,
+            'grouped_voices': grouped_voices,
+            'total_count': len(unified_voices),
+            'categories': list(grouped_voices.keys())
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting unified voices: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e),
+            'voices': [],
+            'grouped_voices': {},
+            'total_count': 0
+        })
+
 @app.route('/api/tts', methods=['POST'])
 def synthesize_speech():
     """Enhanced TTS synthesis endpoint with emotion and model controls"""
     try:
         data = request.get_json()
         text = data.get('text', '')
+        
+        # New unified voice selection
+        unified_voice_id = data.get('unified_voice_id')
+        
+        # Legacy support
         voice_profile = data.get('voice_profile')
         speaker_id = data.get('speaker_id')
         coqui_speaker = data.get('coqui_speaker')
@@ -1037,6 +1200,14 @@ def synthesize_speech():
         
         if not text:
             return jsonify({'error': 'No text provided'}), 400
+        
+        # Parse unified voice selection
+        if unified_voice_id:
+            voice_config = _parse_unified_voice_id(unified_voice_id)
+            model_name = voice_config.get('model')
+            voice_profile = voice_config.get('voice_profile') 
+            coqui_speaker = voice_config.get('coqui_speaker')
+            language = voice_config.get('language', language)
         
         # Load specific model if requested
         if model_name:

@@ -226,54 +226,6 @@
     <div class="container">
         <div class="main-container">
             
-            <!-- Model Selection Row -->
-            <div class="row mb-4">
-                <div class="col-12">
-                    <div class="card">
-                        <div class="card-header bg-info text-white">
-                            <h5 class="mb-0"><i class="fas fa-brain me-2"></i>AI Model Selection</h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-8">
-                                    <label for="modelSelect" class="form-label">Choose TTS Model</label>
-                                    <select class="form-select" id="modelSelect">
-                                        <option value="">Loading models...</option>
-                                    </select>
-                                    <small class="text-muted">Select from 100+ available models with different capabilities</small>
-                                </div>
-                                <div class="col-md-4 d-flex align-items-end">
-                                    <button class="btn btn-outline-primary me-2" id="loadModelBtn">
-                                        <i class="fas fa-download me-1"></i>Load Model
-                                    </button>
-                                    <button class="btn btn-outline-secondary" id="unloadModelBtn">
-                                        <i class="fas fa-trash me-1"></i>Unload
-                                    </button>
-                                </div>
-                            </div>
-                            <div class="mt-2" id="modelCapabilities"></div>
-                            
-                            <!-- Model Explanation Panel -->
-                            <div class="model-explanation mt-3" id="modelExplanation" style="display: none;">
-                                <div class="alert alert-info">
-                                    <h6><i class="fas fa-info-circle me-2"></i>How TTS Models Affect Your Voice</h6>
-                                    <div id="modelDescription">
-                                        <p><strong>Different TTS models produce different voice characteristics:</strong></p>
-                                        <ul>
-                                            <li><strong>🎭 XTTS v2:</strong> Best for voice cloning and emotional expression. Upload a voice sample to clone anyone's voice!</li>
-                                            <li><strong>😊 Bark:</strong> Excellent for emotional speech with natural inflections. Great for storytelling and expressive content.</li>
-                                            <li><strong>🔄 Tortoise:</strong> High-quality English voices with customizable presets for different speaking styles.</li>
-                                            <li><strong>🌍 YourTTS:</strong> Cross-lingual voice cloning - clone voices across different languages.</li>
-                                            <li><strong>⚡ Standard Models:</strong> Fast, reliable voices optimized for specific languages and use cases.</li>
-                                        </ul>
-                                        <p class="mb-0"><strong>Tip:</strong> Try different models with the same text to hear how they change the voice character, emotion, and pronunciation!</p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
             
             <div class="row">
                 <!-- Main TTS Panel -->
@@ -289,33 +241,17 @@
                                          placeholder="Type your message here... Try different emotions and styles!"></textarea>
                             </div>
                             
-                            <!-- Voice Selection Tabs -->
-                            <ul class="nav nav-tabs" id="voiceTabs">
-                                <li class="nav-item">
-                                    <a class="nav-link active" data-bs-toggle="tab" href="#customVoices">
-                                        <i class="fas fa-user me-1"></i>Custom Voices
-                                    </a>
-                                </li>
-                                <li class="nav-item">
-                                    <a class="nav-link" data-bs-toggle="tab" href="#coquiSpeakers">
-                                        <i class="fas fa-users me-1"></i>Coqui Speakers
-                                    </a>
-                                </li>
-                            </ul>
-                            
-                            <div class="tab-content mt-3">
-                                <div class="tab-pane fade show active" id="customVoices">
-                                    <label for="voiceSelect" class="form-label">Custom Voice Profile</label>
-                                    <select class="form-select" id="voiceSelect">
-                                        <option value="">Default Voice</option>
-                                    </select>
-                                </div>
-                                <div class="tab-pane fade" id="coquiSpeakers">
-                                    <label for="coquiSpeakerSelect" class="form-label">Pre-trained Coqui Speaker</label>
-                                    <select class="form-select" id="coquiSpeakerSelect">
-                                        <option value="">Select Speaker</option>
-                                    </select>
-                                </div>
+                            <!-- Unified Voice Selection -->
+                            <div class="voice-selection mb-3">
+                                <label for="unifiedVoiceSelect" class="form-label">
+                                    <i class="fas fa-microphone me-2"></i>Choose Your Voice
+                                </label>
+                                <select class="form-select" id="unifiedVoiceSelect">
+                                    <option value="">Loading voices...</option>
+                                </select>
+                                <small class="text-muted" id="voiceDescription">
+                                    Select from AI voices, pre-trained speakers, and your custom cloned voices
+                                </small>
                             </div>
                             
                             <!-- Basic Settings -->
@@ -553,6 +489,8 @@
         let availableModels = {};
         let currentModelInfo = {};
         let modelCapabilities = {};
+        let allVoices = [];
+        let groupedVoices = {};
         
         // Initialize app
         document.addEventListener('DOMContentLoaded', function() {
@@ -569,7 +507,7 @@
         async function loadInitialData() {
             try {
                 await Promise.all([
-                    loadModels(),
+                    loadUnifiedVoices(),
                     loadSpeakers(),
                     loadVoices(),
                     loadFiles(),
@@ -582,10 +520,8 @@
         }
         
         function setupEventListeners() {
-            // Model management
-            document.getElementById('modelSelect').addEventListener('change', handleModelSelection);
-            document.getElementById('loadModelBtn').addEventListener('click', loadSelectedModel);
-            document.getElementById('unloadModelBtn').addEventListener('click', unloadCurrentModel);
+            // Voice selection
+            document.getElementById('unifiedVoiceSelect').addEventListener('change', handleVoiceSelection);
             
             // Text synthesis
             document.getElementById('synthesizeBtn').addEventListener('click', synthesizeText);
@@ -634,56 +570,92 @@
             });
         }
         
-        async function loadModels() {
+        async function loadUnifiedVoices() {
             try {
-                console.log('🔄 Loading models from backend...');
-                const response = await fetch('/api/models');
+                console.log('🔄 Loading all available voices...');
+                const response = await fetch('/api/unified_voices');
                 
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
                 
                 const data = await response.json();
-                console.log('📊 Models API response:', data);
+                console.log('🎤 Unified voices response:', data);
                 
-                if (data.status === 'error') {
-                    console.error('Backend error:', data.error);
-                    // Still try to use whatever data we got
+                if (!data.success) {
+                    throw new Error(data.error || 'Failed to load voices');
                 }
                 
-                availableModels = data.available_models || {};
-                modelCapabilities = data.model_capabilities || {};
+                allVoices = data.voices || [];
+                groupedVoices = data.grouped_voices || {};
                 
-                console.log(`✅ Loaded ${data.total_tts_models || 0} TTS models`);
-                console.log(`✅ Loaded ${data.total_vocoder_models || 0} vocoder models`);
+                console.log(`✅ Loaded ${data.total_count} total voices`);
+                console.log(`✅ Categories: ${data.categories.join(', ')}`);
                 
-                updateModelSelect();
+                updateUnifiedVoiceSelect();
                 
-                document.getElementById('loadedModelsCount').textContent = (data.loaded_models || []).length;
-                
-                // Show model count in UI
-                const modelCountDisplay = document.createElement('small');
-                modelCountDisplay.className = 'text-success';
-                modelCountDisplay.textContent = `${data.total_tts_models || 0} models available`;
-                
-                const modelSelect = document.getElementById('modelSelect');
-                const existingCount = modelSelect.parentNode.querySelector('.text-success');
-                if (existingCount) existingCount.remove();
-                modelSelect.parentNode.appendChild(modelCountDisplay);
+                // Update voice count display
+                const voiceCountText = `${data.total_count} voices available`;
+                document.getElementById('voiceDescription').textContent = voiceCountText;
                 
             } catch (error) {
-                console.error('❌ Error loading models:', error);
+                console.error('❌ Error loading voices:', error);
                 
                 // Show error in UI
-                const errorDisplay = document.createElement('small');
-                errorDisplay.className = 'text-danger';
-                errorDisplay.textContent = `Error loading models: ${error.message}`;
-                
-                const modelSelect = document.getElementById('modelSelect');
-                const existingError = modelSelect.parentNode.querySelector('.text-danger');
-                if (existingError) existingError.remove();
-                modelSelect.parentNode.appendChild(errorDisplay);
+                document.getElementById('voiceDescription').textContent = `Error loading voices: ${error.message}`;
+                document.getElementById('voiceDescription').className = 'text-danger';
             }
+        }
+        
+        function updateUnifiedVoiceSelect() {
+            const select = document.getElementById('unifiedVoiceSelect');
+            select.innerHTML = '<option value="">Choose a voice...</option>';
+            
+            console.log('🔄 Updating unified voice select...');
+            
+            // Group voices by category
+            const categories = Object.keys(groupedVoices);
+            
+            categories.forEach(category => {
+                // Add category header
+                const optgroup = document.createElement('optgroup');
+                optgroup.label = category;
+                
+                groupedVoices[category].forEach(voice => {
+                    const option = document.createElement('option');
+                    option.value = voice.id;
+                    option.textContent = voice.name;
+                    option.title = voice.description;
+                    optgroup.appendChild(option);
+                });
+                
+                select.appendChild(optgroup);
+            });
+            
+            console.log(`✅ Added ${allVoices.length} voices to select`);
+        }
+        
+        function handleVoiceSelection() {
+            const select = document.getElementById('unifiedVoiceSelect');
+            const voiceId = select.value;
+            
+            if (voiceId) {
+                const voice = allVoices.find(v => v.id === voiceId);
+                if (voice) {
+                    console.log(`🎤 Selected voice: ${voice.name}`);
+                    updateVoiceDescription(voice);
+                }
+            }
+        }
+        
+        function updateVoiceDescription(voice) {
+            const descriptionEl = document.getElementById('voiceDescription');
+            descriptionEl.className = 'text-muted';
+            descriptionEl.innerHTML = `
+                <strong>${voice.name}</strong><br>
+                ${voice.description}<br>
+                <small>Model: ${voice.model.split('/').pop()} | Language: ${voice.language.toUpperCase()}</small>
+            `;
         }
         
         function updateModelSelect() {
@@ -1132,18 +1104,21 @@
         
         async function synthesizeText() {
             const text = document.getElementById('textInput').value.trim();
-            const voiceProfile = document.getElementById('voiceSelect').value;
-            const coquiSpeaker = document.getElementById('coquiSpeakerSelect').value;
+            const unifiedVoiceId = document.getElementById('unifiedVoiceSelect').value;
             const language = document.getElementById('languageSelect').value;
             const preset = document.getElementById('presetSelect').value;
             const temperature = parseFloat(document.getElementById('temperatureControl').value);
             const repetitionPenalty = parseFloat(document.getElementById('repetitionControl').value);
             const lengthPenalty = parseFloat(document.getElementById('lengthControl').value);
             const splitSentences = document.getElementById('splitSentences').checked;
-            const modelName = document.getElementById('modelSelect').value;
             
             if (!text) {
                 alert('Please enter some text to synthesize');
+                return;
+            }
+            
+            if (!unifiedVoiceId) {
+                alert('Please select a voice first');
                 return;
             }
             
@@ -1160,10 +1135,8 @@
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
                         text: text,
-                        voice_profile: voiceProfile,
-                        coqui_speaker: coquiSpeaker,
+                        unified_voice_id: unifiedVoiceId,
                         language: language,
-                        model_name: modelName,
                         preset: preset,
                         temperature: temperature,
                         repetition_penalty: repetitionPenalty,
