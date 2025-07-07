@@ -37,8 +37,9 @@ COPY requirements*.txt ./
 # Debug: List copied files to verify
 RUN ls -la requirements*.txt
 
-# Install main requirements
+# Install main requirements and web dependencies
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.web.txt
 
 # Copy TTS source files and setup files
 COPY TTS/ ./TTS/
@@ -93,6 +94,9 @@ COPY --from=builder /build/TTS ./TTS
 # Copy web server application
 COPY web_server/ ./web_server/
 
+# Make startup script executable
+RUN chmod +x /app/web_server/start.sh
+
 # Set Python path
 ENV PYTHONPATH="/app:${PYTHONPATH}"
 
@@ -109,7 +113,7 @@ EXPOSE 2201
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python /app/web_server/health_check.py || exit 1
+    CMD curl -f http://localhost:2201/health || exit 1
 
 # Default command
-CMD ["python", "-m", "web_server.app"]
+CMD ["/app/web_server/start.sh"]
