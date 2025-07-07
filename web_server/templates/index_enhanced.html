@@ -1210,39 +1210,6 @@
             statusText.textContent = message;
         }
         
-        async function unloadCurrentModel() {
-            const btn = document.getElementById('unloadModelBtn');
-            const originalText = btn.innerHTML;
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Unloading...';
-            
-            try {
-                const response = await fetch('/api/model/unload', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({model_name: currentModelInfo.current_model})
-                });
-                
-                const result = await response.json();
-                
-                if (result.success) {
-                    currentModelInfo = {};
-                    document.getElementById('currentModel').textContent = 'None';
-                    document.getElementById('modelBadge').textContent = 'None';
-                    document.getElementById('currentModelCapabilities').innerHTML = '';
-                    alert('Model unloaded successfully');
-                } else {
-                    alert('Error: ' + (result.error || 'Unknown error'));
-                }
-            } catch (error) {
-                console.error('Model unloading error:', error);
-                alert('Network error: ' + error.message);
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = originalText;
-            }
-        }
-        
         // Periodic health check and data refresh
         setInterval(checkHealth, 30000);
         setInterval(loadFiles, 60000);
