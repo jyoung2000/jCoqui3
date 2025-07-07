@@ -44,6 +44,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY TTS/ ./TTS/
 COPY setup.py pyproject.toml MANIFEST.in README.md ./
 
+# Debug: Verify all files are present
+RUN ls -la setup.py pyproject.toml MANIFEST.in README.md
+
 # Install TTS package
 RUN pip install --no-cache-dir -e .
 

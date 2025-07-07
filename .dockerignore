@@ -5,10 +5,12 @@
 .gitmodules
 
 # Documentation
-*.md
 docs/
 notebooks/
 images/
+# Allow README.md but exclude other markdown files
+*.md
+!README.md
 
 # Tests
 tests/
