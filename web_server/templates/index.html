@@ -252,6 +252,24 @@
                                 </div>
                             </div>
                             <div class="mt-2" id="modelCapabilities"></div>
+                            
+                            <!-- Model Explanation Panel -->
+                            <div class="model-explanation mt-3" id="modelExplanation" style="display: none;">
+                                <div class="alert alert-info">
+                                    <h6><i class="fas fa-info-circle me-2"></i>How TTS Models Affect Your Voice</h6>
+                                    <div id="modelDescription">
+                                        <p><strong>Different TTS models produce different voice characteristics:</strong></p>
+                                        <ul>
+                                            <li><strong>🎭 XTTS v2:</strong> Best for voice cloning and emotional expression. Upload a voice sample to clone anyone's voice!</li>
+                                            <li><strong>😊 Bark:</strong> Excellent for emotional speech with natural inflections. Great for storytelling and expressive content.</li>
+                                            <li><strong>🔄 Tortoise:</strong> High-quality English voices with customizable presets for different speaking styles.</li>
+                                            <li><strong>🌍 YourTTS:</strong> Cross-lingual voice cloning - clone voices across different languages.</li>
+                                            <li><strong>⚡ Standard Models:</strong> Fast, reliable voices optimized for specific languages and use cases.</li>
+                                        </ul>
+                                        <p class="mb-0"><strong>Tip:</strong> Try different models with the same text to hear how they change the voice character, emotion, and pronunciation!</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -966,6 +984,91 @@
                     ${badges.join(' ')}
                 </div>
             `;
+            
+            // Show and update explanation panel
+            showModelExplanation(modelName, modelInfo);
+        }
+        
+        function showModelExplanation(modelName, modelInfo) {
+            const explanationPanel = document.getElementById('modelExplanation');
+            const descriptionDiv = document.getElementById('modelDescription');
+            
+            // Determine model type
+            let modelType = 'standard';
+            if (modelName.includes('xtts')) modelType = 'xtts_v2';
+            else if (modelName.includes('bark')) modelType = 'bark';
+            else if (modelName.includes('tortoise')) modelType = 'tortoise';
+            else if (modelName.includes('your_tts')) modelType = 'your_tts';
+            
+            // Create model-specific description
+            let specificDescription = '';
+            const caps = modelInfo.capabilities || {};
+            
+            switch(modelType) {
+                case 'xtts_v2':
+                    specificDescription = `
+                        <div class="alert alert-success">
+                            <h6>🎭 XTTS v2 - Advanced Voice Cloning</h6>
+                            <p><strong>Perfect for:</strong> Voice cloning, emotional expression, multilingual content</p>
+                            <p><strong>How it affects your voice:</strong> This model can clone any voice from a short audio sample. It produces very natural speech with emotional undertones and works across ${caps.languages ? caps.languages.length : '16+'} languages.</p>
+                            <p><strong>Best use:</strong> Upload a 10-30 second voice sample to clone someone's voice, or use pre-trained speakers for consistent character voices in your content.</p>
+                        </div>
+                    `;
+                    break;
+                case 'bark':
+                    specificDescription = `
+                        <div class="alert alert-info">
+                            <h6>😊 Bark - Emotional & Expressive</h6>
+                            <p><strong>Perfect for:</strong> Storytelling, emotional content, character voices</p>
+                            <p><strong>How it affects your voice:</strong> Bark adds natural emotions, inflections, and speaking patterns. It can produce laughter, sighs, and emotional expressions that make speech feel more human.</p>
+                            <p><strong>Best use:</strong> Adjust temperature for different emotions - higher values create more expressive, sometimes quirky speech patterns.</p>
+                        </div>
+                    `;
+                    break;
+                case 'tortoise':
+                    specificDescription = `
+                        <div class="alert alert-warning">
+                            <h6>🔄 Tortoise - High-Quality English</h6>
+                            <p><strong>Perfect for:</strong> Professional English narration, audiobooks, presentations</p>
+                            <p><strong>How it affects your voice:</strong> Produces very high-quality, clear English speech with customizable speaking styles through presets.</p>
+                            <p><strong>Best use:</strong> Choose from Ultra Fast, Fast, Standard, or High Quality presets depending on your time vs quality needs.</p>
+                        </div>
+                    `;
+                    break;
+                case 'your_tts':
+                    specificDescription = `
+                        <div class="alert alert-primary">
+                            <h6>🌍 YourTTS - Cross-Lingual Voice Cloning</h6>
+                            <p><strong>Perfect for:</strong> Cloning voices across different languages</p>
+                            <p><strong>How it affects your voice:</strong> Clone a voice in one language and use it to speak other languages while maintaining the speaker's characteristics.</p>
+                            <p><strong>Best use:</strong> Great for creating multilingual content with consistent voice identity.</p>
+                        </div>
+                    `;
+                    break;
+                default:
+                    specificDescription = `
+                        <div class="alert alert-secondary">
+                            <h6>⚡ Standard TTS Model</h6>
+                            <p><strong>Perfect for:</strong> Fast, reliable speech synthesis</p>
+                            <p><strong>How it affects your voice:</strong> Optimized for specific languages with good quality and fast generation. Produces clear, natural-sounding speech.</p>
+                            <p><strong>Best use:</strong> When you need quick, consistent results for a specific language.</p>
+                        </div>
+                    `;
+            }
+            
+            descriptionDiv.innerHTML = specificDescription + `
+                <div class="mt-3">
+                    <h6>💡 Quick Tips:</h6>
+                    <ul class="list-unstyled">
+                        <li>• <strong>Voice Selection:</strong> ${caps.supports_voice_cloning ? 'Upload your own voice samples or use pre-trained Coqui speakers' : 'Use built-in voice variations'}</li>
+                        <li>• <strong>Language Support:</strong> ${caps.supports_multilingual ? 'Works with multiple languages' : 'Optimized for specific languages'}</li>
+                        <li>• <strong>Emotion Control:</strong> ${caps.supports_emotions ? 'Adjust temperature and other settings for different emotions' : 'Fixed emotional tone'}</li>
+                        <li>• <strong>Quality vs Speed:</strong> Higher quality settings take longer but produce better results</li>
+                    </ul>
+                </div>
+            `;
+            
+            explanationPanel.style.display = 'block';
         }
         
         async function loadSelectedModel() {
