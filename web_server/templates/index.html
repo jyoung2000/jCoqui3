@@ -618,18 +618,53 @@
         
         async function loadModels() {
             try {
+                console.log('🔄 Loading models from backend...');
                 const response = await fetch('/api/models');
-                const data = await response.json();
                 
-                availableModels = data.available_models;
-                modelCapabilities = data.model_capabilities;
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('📊 Models API response:', data);
+                
+                if (data.status === 'error') {
+                    console.error('Backend error:', data.error);
+                    // Still try to use whatever data we got
+                }
+                
+                availableModels = data.available_models || {};
+                modelCapabilities = data.model_capabilities || {};
+                
+                console.log(`✅ Loaded ${data.total_tts_models || 0} TTS models`);
+                console.log(`✅ Loaded ${data.total_vocoder_models || 0} vocoder models`);
                 
                 updateModelSelect();
                 
-                document.getElementById('loadedModelsCount').textContent = data.loaded_models.length;
+                document.getElementById('loadedModelsCount').textContent = (data.loaded_models || []).length;
+                
+                // Show model count in UI
+                const modelCountDisplay = document.createElement('small');
+                modelCountDisplay.className = 'text-success';
+                modelCountDisplay.textContent = `${data.total_tts_models || 0} models available`;
+                
+                const modelSelect = document.getElementById('modelSelect');
+                const existingCount = modelSelect.parentNode.querySelector('.text-success');
+                if (existingCount) existingCount.remove();
+                modelSelect.parentNode.appendChild(modelCountDisplay);
                 
             } catch (error) {
-                console.error('Error loading models:', error);
+                console.error('❌ Error loading models:', error);
+                
+                // Show error in UI
+                const errorDisplay = document.createElement('small');
+                errorDisplay.className = 'text-danger';
+                errorDisplay.textContent = `Error loading models: ${error.message}`;
+                
+                const modelSelect = document.getElementById('modelSelect');
+                const existingError = modelSelect.parentNode.querySelector('.text-danger');
+                if (existingError) existingError.remove();
+                modelSelect.parentNode.appendChild(errorDisplay);
             }
         }
         
@@ -637,38 +672,74 @@
             const select = document.getElementById('modelSelect');
             select.innerHTML = '<option value="">Select a model...</option>';
             
+            console.log('🔄 Updating model select dropdown...');
+            console.log('Available models structure:', availableModels);
+            
+            let totalModels = 0;
+            
             // Flatten the model structure for easier selection
             for (const [category, languages] of Object.entries(availableModels)) {
-                if (category === 'tts_models') {
+                if (category === 'tts_models' && languages && typeof languages === 'object') {
                     for (const [lang, datasets] of Object.entries(languages)) {
-                        for (const [dataset, models] of Object.entries(datasets)) {
-                            for (const [modelName, modelInfo] of Object.entries(models)) {
-                                const fullName = `${category}/${lang}/${dataset}/${modelName}`;
-                                const option = document.createElement('option');
-                                option.value = fullName;
-                                option.textContent = `${lang.toUpperCase()} - ${dataset} - ${modelName}`;
-                                
-                                // Add capabilities info
-                                const caps = modelInfo.capabilities || {};
-                                if (caps.supports_voice_cloning) option.textContent += ' 🎭';
-                                if (caps.supports_emotions) option.textContent += ' 😊';
-                                if (caps.supports_multilingual) option.textContent += ' 🌍';
-                                
-                                select.appendChild(option);
+                        if (datasets && typeof datasets === 'object') {
+                            for (const [dataset, models] of Object.entries(datasets)) {
+                                if (models && typeof models === 'object') {
+                                    for (const [modelName, modelInfo] of Object.entries(models)) {
+                                        const fullName = `${category}/${lang}/${dataset}/${modelName}`;
+                                        const option = document.createElement('option');
+                                        option.value = fullName;
+                                        option.textContent = `${lang.toUpperCase()} - ${dataset} - ${modelName}`;
+                                        
+                                        // Add capabilities info
+                                        const caps = (modelInfo && modelInfo.capabilities) || {};
+                                        if (caps.supports_voice_cloning) option.textContent += ' 🎭';
+                                        if (caps.supports_emotions) option.textContent += ' 😊';
+                                        if (caps.supports_multilingual) option.textContent += ' 🌍';
+                                        
+                                        select.appendChild(option);
+                                        totalModels++;
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
+            
+            console.log(`✅ Added ${totalModels} models to dropdown`);
+            
+            // If no models found, show a helpful message
+            if (totalModels === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = 'No models available - check backend logs';
+                option.disabled = true;
+                select.appendChild(option);
+            }
         }
         
         async function loadSpeakers() {
             try {
+                console.log('🔄 Loading speakers from backend...');
                 const response = await fetch('/api/speakers');
-                const data = await response.json();
                 
-                coquiSpeakers = data.coqui_speakers;
-                voices = data.custom_voices;
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                console.log('🎤 Speakers API response:', data);
+                
+                if (data.status === 'error') {
+                    console.error('Backend error:', data.error);
+                    // Still try to use whatever data we got
+                }
+                
+                coquiSpeakers = data.coqui_speakers || {};
+                voices = data.custom_voices || {};
+                
+                console.log(`✅ Loaded ${Object.keys(coquiSpeakers).length} Coqui speakers`);
+                console.log(`✅ Loaded ${Object.keys(voices).length} custom voices`);
                 
                 updateCoquiSpeakers();
                 updateVoiceLibrary();
@@ -677,7 +748,11 @@
                 document.getElementById('customCount').textContent = Object.keys(voices).length;
                 
             } catch (error) {
-                console.error('Error loading speakers:', error);
+                console.error('❌ Error loading speakers:', error);
+                
+                // Show error in UI
+                document.getElementById('coquiCount').textContent = 'Error';
+                document.getElementById('customCount').textContent = 'Error';
             }
         }
         
@@ -685,12 +760,16 @@
             const container = document.getElementById('coquiSpeakersList');
             const select = document.getElementById('coquiSpeakerSelect');
             
+            console.log('🔄 Updating Coqui speakers...');
+            console.log('Coqui speakers data:', coquiSpeakers);
+            
             // Clear existing
             container.innerHTML = '';
             select.innerHTML = '<option value="">Select Speaker</option>';
             
             if (Object.keys(coquiSpeakers).length === 0) {
-                container.innerHTML = '<p class="text-muted text-center">No Coqui speakers available</p>';
+                container.innerHTML = '<p class="text-muted text-center">No Coqui speakers available - check backend</p>';
+                console.warn('❌ No Coqui speakers loaded');
                 return;
             }
             
@@ -707,6 +786,7 @@
                             <br><small>${info.description || 'Coqui pre-trained voice'}</small>
                             <br><span class="badge badge-capability">${info.language?.toUpperCase() || 'EN'}</span>
                             <span class="badge badge-capability">${info.gender || 'unknown'}</span>
+                            ${info.accent ? `<br><span class="badge badge-capability">${info.accent}</span>` : ''}
                         </div>
                         <i class="fas fa-star"></i>
                     </div>
@@ -719,6 +799,8 @@
                 option.textContent = `${name} (${info.language?.toUpperCase() || 'EN'})`;
                 select.appendChild(option);
             });
+            
+            console.log(`✅ Added ${Object.keys(coquiSpeakers).length} Coqui speakers to UI`);
         }
         
         function selectCoquiSpeaker(speakerName) {

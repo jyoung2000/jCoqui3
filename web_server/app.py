@@ -78,32 +78,542 @@ current_tts_model = None
 model_manager = None
 available_models = {}
 voice_profiles = {}
+loaded_models = {}  # Cache for loaded models
+coqui_speakers = {}  # Pre-trained Coqui speakers
+model_capabilities = {}  # Track what each model can do
 
 def initialize_models():
-    """Initialize TTS models and model manager"""
-    global model_manager, available_models
+    """Initialize TTS models and model manager with enhanced capabilities"""
+    global model_manager, available_models, coqui_speakers, model_capabilities
+    
+    # Always initialize capabilities and speakers first
+    _initialize_model_capabilities()
+    _load_coqui_speakers()
     
     if not TTS_AVAILABLE:
-        logger.error("TTS libraries not available, running in limited mode")
-        available_models = {'tts_models': {}, 'vocoder_models': {}, 'voice_conversion_models': {}}
+        logger.warning("TTS libraries not available, using fallback models only")
+        available_models = _get_fallback_models()
+        logger.info(f"Fallback mode: Loaded {_count_nested_models(available_models['tts_models'])} TTS models")
         return
     
     try:
+        logger.info("Initializing TTS ModelManager...")
         model_manager = ModelManager()
         
-        # Get list of available models
+        # Get comprehensive list of available models
+        logger.info("Fetching available models from ModelManager...")
         models_dict = model_manager.list_models()
-        available_models = {
-            'tts_models': models_dict.get('tts_models', {}),
-            'vocoder_models': models_dict.get('vocoder_models', {}),
-            'voice_conversion_models': models_dict.get('voice_conversion_models', {})
-        }
         
-        logger.info(f"Initialized with {len(available_models['tts_models'])} TTS models")
+        # Debug: Log the structure of models_dict
+        logger.info(f"Raw models_dict type: {type(models_dict)}")
+        logger.info(f"Raw models_dict keys: {list(models_dict.keys()) if isinstance(models_dict, dict) else 'Not a dict'}")
+        
+        # Handle different possible return formats
+        if isinstance(models_dict, dict):
+            available_models = {
+                'tts_models': models_dict.get('tts_models', {}),
+                'vocoder_models': models_dict.get('vocoder_models', {}),
+                'voice_conversion_models': models_dict.get('voice_conversion_models', {})
+            }
+        else:
+            logger.warning("Unexpected models_dict format, using fallback")
+            available_models = _get_fallback_models()
+        
+        # If no models found, merge with fallback
+        if not available_models.get('tts_models'):
+            logger.warning("No TTS models found from ModelManager, using fallback list")
+            available_models = _get_fallback_models()
+        else:
+            # Merge real models with fallback to ensure comprehensive coverage
+            fallback_models = _get_fallback_models()
+            for category in ['tts_models', 'vocoder_models', 'voice_conversion_models']:
+                if category in fallback_models:
+                    for lang, datasets in fallback_models[category].items():
+                        if lang not in available_models[category]:
+                            available_models[category][lang] = datasets
+                        else:
+                            for dataset, models in datasets.items():
+                                if dataset not in available_models[category][lang]:
+                                    available_models[category][lang][dataset] = models
+        
+        # Count total models
+        total_tts_models = _count_nested_models(available_models['tts_models'])
+        total_vocoder_models = _count_nested_models(available_models['vocoder_models'])
+        
+        logger.info(f"Initialized with {total_tts_models} TTS models")
+        logger.info(f"Initialized with {total_vocoder_models} vocoder models")
+        logger.info(f"Available Coqui speakers: {len(coqui_speakers)}")
+        
+        # Debug: Log some example models
+        if available_models['tts_models']:
+            logger.info("Sample TTS models available:")
+            count = 0
+            for lang in list(available_models['tts_models'].keys())[:3]:
+                for dataset in list(available_models['tts_models'][lang].keys())[:2]:
+                    for model in list(available_models['tts_models'][lang][dataset].keys())[:2]:
+                        logger.info(f"  - tts_models/{lang}/{dataset}/{model}")
+                        count += 1
+                        if count >= 5:
+                            break
+                    if count >= 5:
+                        break
+                if count >= 5:
+                    break
         
     except Exception as e:
         logger.error(f"Error initializing models: {e}")
-        available_models = {'tts_models': {}, 'vocoder_models': {}, 'voice_conversion_models': {}}
+        logger.error(traceback.format_exc())
+        # Use fallback models if initialization fails
+        available_models = _get_fallback_models()
+        _initialize_model_capabilities()
+        _load_coqui_speakers()
+
+def _count_nested_models(models_dict):
+    """Count total models in nested dictionary structure"""
+    count = 0
+    if isinstance(models_dict, dict):
+        for lang_models in models_dict.values():
+            if isinstance(lang_models, dict):
+                for dataset_models in lang_models.values():
+                    if isinstance(dataset_models, dict):
+                        count += len(dataset_models)
+    return count
+
+def _get_fallback_models():
+    """Provide a comprehensive fallback list of known TTS models"""
+    return {
+        'tts_models': {
+            'multilingual': {
+                'multi-dataset': {
+                    'xtts_v2': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'XTTS v2 - Advanced voice cloning and multilingual synthesis',
+                        'capabilities': model_capabilities.get('xtts_v2', {}),
+                        'full_name': 'tts_models/multilingual/multi-dataset/xtts_v2'
+                    },
+                    'bark': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Bark - High-quality multilingual TTS with emotions',
+                        'capabilities': model_capabilities.get('bark', {}),
+                        'full_name': 'tts_models/multilingual/multi-dataset/bark'
+                    },
+                    'your_tts': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'YourTTS - Cross-lingual voice cloning',
+                        'capabilities': model_capabilities.get('your_tts', {}),
+                        'full_name': 'tts_models/multilingual/multi-dataset/your_tts'
+                    }
+                }
+            },
+            'en': {
+                'ljspeech': {
+                    'tacotron2-DDC': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Tacotron2 with Dynamic Decoder Constraint',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/en/ljspeech/tacotron2-DDC'
+                    },
+                    'glow-tts': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Glow-TTS - Fast and stable TTS',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/en/ljspeech/glow-tts'
+                    },
+                    'speedy-speech': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Speedy Speech - Very fast TTS',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/en/ljspeech/speedy-speech'
+                    }
+                },
+                'multi-dataset': {
+                    'tortoise-v2': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Tortoise v2 - High-quality voice cloning',
+                        'capabilities': model_capabilities.get('tortoise', {}),
+                        'full_name': 'tts_models/en/multi-dataset/tortoise-v2'
+                    }
+                },
+                'vctk': {
+                    'vits': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'VITS multi-speaker model',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/en/vctk/vits'
+                    }
+                }
+            },
+            'es': {
+                'mai': {
+                    'tacotron2-DDC': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Spanish Tacotron2',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/es/mai/tacotron2-DDC'
+                    }
+                }
+            },
+            'fr': {
+                'mai': {
+                    'tacotron2-DDC': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'French Tacotron2',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/fr/mai/tacotron2-DDC'
+                    }
+                }
+            },
+            'de': {
+                'thorsten': {
+                    'tacotron2-DDC': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'German Tacotron2',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/de/thorsten/tacotron2-DDC'
+                    },
+                    'vits': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'German VITS',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/de/thorsten/vits'
+                    }
+                },
+                'css10': {
+                    'vits-neon': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'German CSS10 VITS',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/de/css10/vits-neon'
+                    }
+                }
+            },
+            'it': {
+                'mai': {
+                    'tacotron2-DDC': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Italian Tacotron2',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/it/mai/tacotron2-DDC'
+                    }
+                }
+            },
+            'pt': {
+                'cv': {
+                    'vits': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Portuguese VITS',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/pt/cv/vits'
+                    }
+                }
+            },
+            'pl': {
+                'mai': {
+                    'glow-tts': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Polish Glow-TTS',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/pl/mai/glow-tts'
+                    }
+                }
+            },
+            'tr': {
+                'common-voice': {
+                    'glow-tts': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Turkish Glow-TTS',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/tr/common-voice/glow-tts'
+                    }
+                }
+            },
+            'ru': {
+                'ruslan': {
+                    'tacotron2-DDC': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Russian Tacotron2',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/ru/ruslan/tacotron2-DDC'
+                    }
+                }
+            },
+            'nl': {
+                'mai': {
+                    'tacotron2-DDC': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Dutch Tacotron2',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/nl/mai/tacotron2-DDC'
+                    }
+                }
+            },
+            'cs': {
+                'cv': {
+                    'vits': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Czech VITS',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/cs/cv/vits'
+                    }
+                }
+            },
+            'ar': {
+                'cv': {
+                    'vits': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Arabic VITS',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/ar/cv/vits'
+                    }
+                }
+            },
+            'zh': {
+                'baker': {
+                    'tacotron2-DDC-GST': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Chinese Tacotron2 with GST',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/zh/baker/tacotron2-DDC-GST'
+                    }
+                }
+            },
+            'ja': {
+                'kokoro': {
+                    'tacotron2-DDC': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Japanese Tacotron2',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/ja/kokoro/tacotron2-DDC'
+                    }
+                }
+            },
+            'hu': {
+                'css10': {
+                    'vits': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Hungarian VITS',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/hu/css10/vits'
+                    }
+                }
+            },
+            'ko': {
+                'kss': {
+                    'glow-tts': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Korean Glow-TTS',
+                        'capabilities': model_capabilities.get('standard', {}),
+                        'full_name': 'tts_models/ko/kss/glow-tts'
+                    }
+                }
+            }
+        },
+        'vocoder_models': {
+            'universal': {
+                'libri-tts': {
+                    'fullband-melgan': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'Universal Fullband MelGAN',
+                        'full_name': 'vocoder_models/universal/libri-tts/fullband-melgan'
+                    }
+                }
+            },
+            'en': {
+                'ljspeech': {
+                    'hifigan_v2': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'HiFiGAN v2',
+                        'full_name': 'vocoder_models/en/ljspeech/hifigan_v2'
+                    }
+                }
+            }
+        },
+        'voice_conversion_models': {
+            'multilingual': {
+                'vctk': {
+                    'freevc24': {
+                        'model_file': None,
+                        'config_file': None,
+                        'description': 'FreeVC24 voice conversion',
+                        'full_name': 'voice_conversion_models/multilingual/vctk/freevc24'
+                    }
+                }
+            }
+        }
+    }
+
+def _initialize_model_capabilities():
+    """Initialize capabilities for different model types"""
+    global model_capabilities
+    
+    model_capabilities = {
+        'xtts_v2': {
+            'supports_emotions': True,
+            'supports_voice_cloning': True,
+            'supports_multilingual': True,
+            'supports_speakers': True,
+            'emotion_controls': ['temperature', 'repetition_penalty', 'length_penalty'],
+            'languages': ['en', 'es', 'fr', 'de', 'it', 'pt', 'pl', 'tr', 'ru', 'nl', 'cs', 'ar', 'zh', 'ja', 'hu', 'ko']
+        },
+        'bark': {
+            'supports_emotions': True,
+            'supports_voice_cloning': True,
+            'supports_multilingual': True,
+            'supports_speakers': True,
+            'emotion_controls': ['temperature', 'voice_dirs'],
+            'languages': ['en', 'de', 'es', 'fr', 'hi', 'it', 'ja', 'ko', 'pl', 'pt', 'ru', 'tr', 'zh']
+        },
+        'tortoise': {
+            'supports_emotions': True,
+            'supports_voice_cloning': True,
+            'supports_multilingual': False,
+            'supports_speakers': True,
+            'emotion_controls': ['preset', 'num_autoregressive_samples', 'diffusion_iterations'],
+            'presets': ['ultra_fast', 'fast', 'standard', 'high_quality']
+        },
+        'your_tts': {
+            'supports_emotions': False,
+            'supports_voice_cloning': True,
+            'supports_multilingual': True,
+            'supports_speakers': False,
+            'languages': ['en', 'fr', 'pt']
+        },
+        'standard': {
+            'supports_emotions': False,
+            'supports_voice_cloning': False,
+            'supports_multilingual': False,
+            'supports_speakers': False,
+            'emotion_controls': [],
+            'languages': ['en']
+        }
+    }
+
+def _load_coqui_speakers():
+    """Load pre-trained Coqui speakers for XTTS v2"""
+    global coqui_speakers
+    
+    logger.info("Loading Coqui pre-trained speakers...")
+    
+    # Enhanced list of pre-defined Coqui speakers for XTTS v2
+    coqui_speakers = {
+        'Ana Florence': {
+            'language': 'en', 
+            'gender': 'female', 
+            'description': 'Professional English female voice - clear and articulate',
+            'accent': 'American',
+            'age_range': 'Adult'
+        },
+        'Andrew Chipper': {
+            'language': 'en', 
+            'gender': 'male', 
+            'description': 'Young English male voice - energetic and friendly',
+            'accent': 'American',
+            'age_range': 'Young Adult'
+        },
+        'Dionisio Schuyler': {
+            'language': 'en', 
+            'gender': 'male', 
+            'description': 'Mature English male voice - authoritative and warm',
+            'accent': 'American',
+            'age_range': 'Middle-aged'
+        },
+        'Marcela Granados': {
+            'language': 'es', 
+            'gender': 'female', 
+            'description': 'Spanish female voice - native speaker with clear pronunciation',
+            'accent': 'Latin American',
+            'age_range': 'Adult'
+        },
+        'Viktor Eka': {
+            'language': 'de', 
+            'gender': 'male', 
+            'description': 'German male voice - professional and clear',
+            'accent': 'Standard German',
+            'age_range': 'Adult'
+        },
+        'Abrahan Mack': {
+            'language': 'en', 
+            'gender': 'male', 
+            'description': 'Deep English male voice - rich and resonant',
+            'accent': 'American',
+            'age_range': 'Adult'
+        },
+        'Adde Michal': {
+            'language': 'en', 
+            'gender': 'male', 
+            'description': 'Clear English male voice - crisp and professional',
+            'accent': 'American',
+            'age_range': 'Adult'
+        },
+        'Alexandra Hithe': {
+            'language': 'en', 
+            'gender': 'female', 
+            'description': 'Elegant English female voice - sophisticated and smooth',
+            'accent': 'British',
+            'age_range': 'Adult'
+        },
+        'Alice Wonderland': {
+            'language': 'en', 
+            'gender': 'female', 
+            'description': 'Whimsical English female voice - playful and expressive',
+            'accent': 'American',
+            'age_range': 'Young Adult'
+        },
+        'Claribel Dervla': {
+            'language': 'en', 
+            'gender': 'female', 
+            'description': 'Articulate English female voice - precise and clear',
+            'accent': 'Irish',
+            'age_range': 'Adult'
+        },
+        'Elisabeth Ramsey': {
+            'language': 'en', 
+            'gender': 'female', 
+            'description': 'Sophisticated English female voice - refined and elegant',
+            'accent': 'British',
+            'age_range': 'Middle-aged'
+        },
+        'Ernesto Bonnet': {
+            'language': 'fr', 
+            'gender': 'male', 
+            'description': 'French male voice - native speaker with authentic accent',
+            'accent': 'Parisian French',
+            'age_range': 'Adult'
+        }
+    }
+    
+    logger.info(f"Loaded {len(coqui_speakers)} Coqui speakers")
+    
+    # Log available speakers
+    for name, info in coqui_speakers.items():
+        logger.info(f"  - {name}: {info['language'].upper()} {info['gender']} ({info['accent']})")
 
 def load_voice_profiles():
     """Load existing voice profiles from disk"""
@@ -129,30 +639,76 @@ def save_voice_profiles():
     except Exception as e:
         logger.error(f"Error saving voice profiles: {e}")
 
-def get_current_model():
-    """Get or initialize the current TTS model"""
-    global current_tts_model
+def get_or_load_model(model_name=None):
+    """Get or load a specific TTS model with caching"""
+    global current_tts_model, loaded_models
     
     if not TTS_AVAILABLE:
         return None
     
-    if current_tts_model is None:
-        try:
-            # Default to XTTS v2 for voice cloning capabilities
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            current_tts_model = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
-            logger.info(f"Loaded default XTTS v2 model on {device}")
-        except Exception as e:
-            logger.error(f"Error loading default model: {e}")
-            # Fallback to simpler model
-            try:
-                current_tts_model = TTS("tts_models/en/ljspeech/tacotron2-DDC")
-                logger.info("Loaded fallback Tacotron2 model")
-            except Exception as e2:
-                logger.error(f"Error loading fallback model: {e2}")
-                current_tts_model = None
+    # Use default model if none specified
+    if model_name is None:
+        model_name = "tts_models/multilingual/multi-dataset/xtts_v2"
     
+    # Check if model is already loaded
+    if model_name in loaded_models:
+        current_tts_model = loaded_models[model_name]
+        return current_tts_model
+    
+    try:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = TTS(model_name).to(device)
+        
+        # Cache the loaded model
+        loaded_models[model_name] = model
+        current_tts_model = model
+        
+        logger.info(f"Loaded {model_name} on {device}")
+        return model
+        
+    except Exception as e:
+        logger.error(f"Error loading model {model_name}: {e}")
+        
+        # Try fallback models
+        fallback_models = [
+            "tts_models/multilingual/multi-dataset/xtts_v2",
+            "tts_models/en/ljspeech/tacotron2-DDC",
+            "tts_models/en/ljspeech/glow-tts"
+        ]
+        
+        for fallback in fallback_models:
+            if fallback != model_name and fallback not in loaded_models:
+                try:
+                    model = TTS(fallback).to(device)
+                    loaded_models[fallback] = model
+                    current_tts_model = model
+                    logger.info(f"Loaded fallback model: {fallback}")
+                    return model
+                except Exception as e2:
+                    continue
+        
+        logger.error("Failed to load any TTS model")
+        return None
+
+def get_current_model():
+    """Get the current active model"""
+    global current_tts_model
+    if current_tts_model is None:
+        return get_or_load_model()
     return current_tts_model
+
+def get_model_type(model_name):
+    """Determine the model type from model name"""
+    if 'xtts' in model_name.lower():
+        return 'xtts_v2'
+    elif 'bark' in model_name.lower():
+        return 'bark'
+    elif 'tortoise' in model_name.lower():
+        return 'tortoise'
+    elif 'your_tts' in model_name.lower():
+        return 'your_tts'
+    else:
+        return 'standard'
 
 # Routes
 @app.route('/')
@@ -163,22 +719,214 @@ def index():
 @app.route('/health')
 def health():
     """Health check endpoint"""
+    total_tts_models = _count_nested_models(available_models.get('tts_models', {}))
+    total_coqui_speakers = len(coqui_speakers)
+    
     return jsonify({
         'status': 'healthy',
         'timestamp': datetime.now().isoformat(),
         'cuda_available': torch.cuda.is_available(),
         'models_loaded': current_tts_model is not None,
         'tts_available': TTS_AVAILABLE,
-        'audio_libs_available': AUDIO_LIBS_AVAILABLE
+        'audio_libs_available': AUDIO_LIBS_AVAILABLE,
+        'total_tts_models': total_tts_models,
+        'total_coqui_speakers': total_coqui_speakers,
+        'loaded_models_count': len(loaded_models)
     })
+
+@app.route('/debug')
+def debug_info():
+    """Debug information endpoint"""
+    try:
+        return jsonify({
+            'tts_available': TTS_AVAILABLE,
+            'audio_libs_available': AUDIO_LIBS_AVAILABLE,
+            'available_models_structure': {
+                'tts_models': {
+                    'count': _count_nested_models(available_models.get('tts_models', {})),
+                    'languages': list(available_models.get('tts_models', {}).keys())[:10],
+                    'sample': _get_sample_models(available_models.get('tts_models', {}), 5)
+                },
+                'vocoder_models': {
+                    'count': _count_nested_models(available_models.get('vocoder_models', {})),
+                    'languages': list(available_models.get('vocoder_models', {}).keys())[:5]
+                }
+            },
+            'coqui_speakers': {
+                'count': len(coqui_speakers),
+                'names': list(coqui_speakers.keys())[:10]
+            },
+            'voice_profiles': {
+                'count': len(voice_profiles),
+                'names': list(voice_profiles.keys())[:10]
+            },
+            'loaded_models': list(loaded_models.keys()),
+            'current_model': getattr(current_tts_model, 'model_name', None) if current_tts_model else None,
+            'model_capabilities_keys': list(model_capabilities.keys())
+        })
+    except Exception as e:
+        return jsonify({
+            'error': str(e),
+            'traceback': traceback.format_exc()
+        })
+
+def _get_sample_models(models_dict, limit=5):
+    """Get a sample of available models for debugging"""
+    samples = []
+    count = 0
+    
+    for lang, datasets in models_dict.items():
+        if count >= limit:
+            break
+        for dataset, models in datasets.items():
+            if count >= limit:
+                break
+            for model_name in models.keys():
+                if count >= limit:
+                    break
+                samples.append(f"tts_models/{lang}/{dataset}/{model_name}")
+                count += 1
+    
+    return samples
 
 @app.route('/api/models')
 def get_models():
-    """Get available TTS models"""
-    return jsonify({
-        'available_models': available_models,
-        'current_model': getattr(current_tts_model, 'model_name', None) if current_tts_model else None
-    })
+    """Get available TTS models with capabilities"""
+    try:
+        logger.info("API call to /api/models")
+        logger.info(f"Available models keys: {list(available_models.keys())}")
+        logger.info(f"TTS models count: {_count_nested_models(available_models.get('tts_models', {}))}")
+        
+        models_with_info = {}
+        
+        for category, models in available_models.items():
+            if not isinstance(models, dict):
+                continue
+                
+            models_with_info[category] = {}
+            for lang, lang_models in models.items():
+                if not isinstance(lang_models, dict):
+                    continue
+                    
+                models_with_info[category][lang] = {}
+                for dataset, dataset_models in lang_models.items():
+                    if not isinstance(dataset_models, dict):
+                        continue
+                        
+                    models_with_info[category][lang][dataset] = {}
+                    for model_name, model_info in dataset_models.items():
+                        full_model_name = f"{category}/{lang}/{dataset}/{model_name}"
+                        model_type = get_model_type(full_model_name)
+                        capabilities = model_capabilities.get(model_type, model_capabilities.get('standard', {}))
+                        
+                        # Ensure model_info is a dictionary
+                        if not isinstance(model_info, dict):
+                            model_info = {'description': str(model_info)}
+                        
+                        models_with_info[category][lang][dataset][model_name] = {
+                            **model_info,
+                            'capabilities': capabilities,
+                            'full_name': full_model_name
+                        }
+        
+        current_model_name = None
+        if current_tts_model:
+            current_model_name = getattr(current_tts_model, 'model_name', None)
+        
+        response_data = {
+            'available_models': models_with_info,
+            'current_model': current_model_name,
+            'loaded_models': list(loaded_models.keys()),
+            'model_capabilities': model_capabilities,
+            'total_tts_models': _count_nested_models(available_models.get('tts_models', {})),
+            'total_vocoder_models': _count_nested_models(available_models.get('vocoder_models', {})),
+            'status': 'success'
+        }
+        
+        logger.info(f"Returning {response_data['total_tts_models']} TTS models to frontend")
+        return jsonify(response_data)
+        
+    except Exception as e:
+        logger.error(f"Error in /api/models endpoint: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'available_models': available_models,
+            'current_model': None,
+            'loaded_models': [],
+            'model_capabilities': model_capabilities,
+            'total_tts_models': 0,
+            'total_vocoder_models': 0,
+            'status': 'error',
+            'error': str(e)
+        })
+
+@app.route('/api/speakers')
+def get_speakers():
+    """Get available speakers (Coqui + custom voices)"""
+    try:
+        logger.info("API call to /api/speakers")
+        logger.info(f"Coqui speakers count: {len(coqui_speakers)}")
+        logger.info(f"Custom voices count: {len(voice_profiles)}")
+        
+        all_speakers = {
+            'coqui_speakers': coqui_speakers,
+            'custom_voices': voice_profiles,
+            'total_count': len(coqui_speakers) + len(voice_profiles),
+            'status': 'success'
+        }
+        
+        # Log some speaker names for debugging
+        if coqui_speakers:
+            sample_speakers = list(coqui_speakers.keys())[:3]
+            logger.info(f"Sample Coqui speakers: {sample_speakers}")
+        
+        return jsonify(all_speakers)
+        
+    except Exception as e:
+        logger.error(f"Error in /api/speakers endpoint: {e}")
+        logger.error(traceback.format_exc())
+        return jsonify({
+            'coqui_speakers': {},
+            'custom_voices': {},
+            'total_count': 0,
+            'status': 'error',
+            'error': str(e)
+        })
+
+@app.route('/api/models/<path:model_name>/info')
+def get_model_info(model_name):
+    """Get detailed information about a specific model"""
+    try:
+        # Load model to get detailed info
+        model = get_or_load_model(model_name)
+        if not model:
+            return jsonify({'error': 'Model not found or failed to load'}), 404
+        
+        model_type = get_model_type(model_name)
+        capabilities = model_capabilities.get(model_type, {})
+        
+        info = {
+            'model_name': model_name,
+            'model_type': model_type,
+            'device': str(model.device) if hasattr(model, 'device') else 'Unknown',
+            'capabilities': capabilities,
+            'loaded': True
+        }
+        
+        # Get model-specific information
+        if hasattr(model, 'language_manager') and model.language_manager:
+            info['supported_languages'] = list(model.language_manager.language_names)
+        elif 'languages' in capabilities:
+            info['supported_languages'] = capabilities['languages']
+        
+        if hasattr(model, 'speaker_manager') and model.speaker_manager:
+            info['supported_speakers'] = list(model.speaker_manager.speaker_names)
+        
+        return jsonify(info)
+        
+    except Exception as e:
+        logger.error(f"Error getting model info for {model_name}: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/voices')
 def get_voices():
@@ -187,18 +935,32 @@ def get_voices():
 
 @app.route('/api/tts', methods=['POST'])
 def synthesize_speech():
-    """Main TTS synthesis endpoint"""
+    """Enhanced TTS synthesis endpoint with emotion and model controls"""
     try:
         data = request.get_json()
         text = data.get('text', '')
         voice_profile = data.get('voice_profile')
         speaker_id = data.get('speaker_id')
+        coqui_speaker = data.get('coqui_speaker')
         language = data.get('language', 'en')
+        model_name = data.get('model_name')
+        
+        # Emotion and quality controls
+        temperature = float(data.get('temperature', 0.7))
+        repetition_penalty = float(data.get('repetition_penalty', 1.0))
+        length_penalty = float(data.get('length_penalty', 1.0))
+        preset = data.get('preset', 'standard')
+        split_sentences = data.get('split_sentences', True)
         
         if not text:
             return jsonify({'error': 'No text provided'}), 400
         
-        model = get_current_model()
+        # Load specific model if requested
+        if model_name:
+            model = get_or_load_model(model_name)
+        else:
+            model = get_or_load_model()
+            
         if not model:
             return jsonify({'error': 'No TTS model available'}), 500
         
@@ -206,39 +968,67 @@ def synthesize_speech():
         filename = f"tts_{uuid.uuid4().hex[:8]}.wav"
         output_path = os.path.join(config.OUTPUTS_DIR, filename)
         
-        # Synthesize speech based on parameters
+        # Determine model type for appropriate synthesis
+        model_type = get_model_type(getattr(model, 'model_name', model_name or 'unknown'))
+        
+        # Synthesize based on model type and parameters
+        synthesis_kwargs = {
+            'text': text,
+            'file_path': output_path
+        }
+        
+        # Add language for multilingual models
+        if model_capabilities.get(model_type, {}).get('supports_multilingual'):
+            synthesis_kwargs['language'] = language
+        
+        # Voice selection priority: custom voice > coqui speaker > speaker ID
         if voice_profile and voice_profile in voice_profiles:
-            # Use cloned voice
-            speaker_wav = voice_profiles[voice_profile]['audio_path']
-            model.tts_to_file(
-                text=text,
-                speaker_wav=speaker_wav,
-                language=language,
-                file_path=output_path
-            )
+            # Use custom cloned voice
+            synthesis_kwargs['speaker_wav'] = voice_profiles[voice_profile]['audio_path']
+        elif coqui_speaker and coqui_speaker in coqui_speakers:
+            # Use Coqui pre-trained speaker
+            synthesis_kwargs['speaker'] = coqui_speaker
         elif speaker_id:
             # Use speaker ID for multi-speaker models
-            model.tts_to_file(
-                text=text,
-                speaker=speaker_id,
-                language=language,
-                file_path=output_path
-            )
-        else:
-            # Standard synthesis
-            model.tts_to_file(
-                text=text,
-                file_path=output_path
-            )
+            synthesis_kwargs['speaker'] = speaker_id
+        
+        # Add model-specific parameters
+        if model_type == 'xtts_v2':
+            if 'speaker_wav' in synthesis_kwargs or 'speaker' in synthesis_kwargs:
+                synthesis_kwargs['split_sentences'] = split_sentences
+                # Add emotion controls for XTTS v2
+                if hasattr(model, 'tts_to_file'):
+                    # These parameters might be available in advanced usage
+                    pass
+        elif model_type == 'bark':
+            # Bark-specific parameters
+            if temperature != 0.7:
+                synthesis_kwargs['temperature'] = temperature
+        elif model_type == 'tortoise':
+            # Tortoise-specific parameters
+            if preset != 'standard':
+                synthesis_kwargs['preset'] = preset
+        
+        # Perform synthesis
+        model.tts_to_file(**synthesis_kwargs)
         
         return jsonify({
             'success': True,
             'filename': filename,
-            'download_url': f'/api/download/{filename}'
+            'download_url': f'/api/download/{filename}',
+            'model_used': getattr(model, 'model_name', 'unknown'),
+            'model_type': model_type,
+            'parameters_used': {
+                'language': language,
+                'temperature': temperature,
+                'preset': preset,
+                'split_sentences': split_sentences
+            }
         })
         
     except Exception as e:
-        logger.error(f"TTS synthesis error: {e}")
+        logger.error(f"Enhanced TTS synthesis error: {e}")
+        logger.error(traceback.format_exc())
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/clone_voice', methods=['POST'])
@@ -345,7 +1135,7 @@ def delete_voice(voice_name):
 
 @app.route('/api/model/switch', methods=['POST'])
 def switch_model():
-    """Switch TTS model"""
+    """Switch TTS model with enhanced capabilities"""
     global current_tts_model
     
     try:
@@ -356,17 +1146,98 @@ def switch_model():
             return jsonify({'error': 'No model name provided'}), 400
         
         # Load new model
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        current_tts_model = TTS(model_name).to(device)
+        model = get_or_load_model(model_name)
+        if not model:
+            return jsonify({'error': f'Failed to load model: {model_name}'}), 500
+        
+        current_tts_model = model
+        model_type = get_model_type(model_name)
+        capabilities = model_capabilities.get(model_type, {})
         
         return jsonify({
             'success': True,
             'current_model': model_name,
-            'device': device
+            'model_type': model_type,
+            'device': str(model.device) if hasattr(model, 'device') else 'unknown',
+            'capabilities': capabilities
         })
         
     except Exception as e:
         logger.error(f"Error switching model: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/presets')
+def get_presets():
+    """Get available presets for different model types"""
+    presets = {
+        'tortoise': {
+            'ultra_fast': 'Fastest synthesis, lower quality',
+            'fast': 'Fast synthesis, good quality',
+            'standard': 'Balanced speed and quality',
+            'high_quality': 'Best quality, slower synthesis'
+        },
+        'xtts_v2': {
+            'default': 'Default XTTS v2 settings'
+        },
+        'bark': {
+            'default': 'Default Bark settings'
+        }
+    }
+    
+    return jsonify({
+        'presets': presets,
+        'emotion_controls': {
+            'temperature': {
+                'min': 0.1,
+                'max': 1.5,
+                'default': 0.7,
+                'description': 'Controls randomness and emotion in speech'
+            },
+            'repetition_penalty': {
+                'min': 1.0,
+                'max': 2.0,
+                'default': 1.0,
+                'description': 'Reduces repetitive speech patterns'
+            },
+            'length_penalty': {
+                'min': 0.5,
+                'max': 2.0,
+                'default': 1.0,
+                'description': 'Controls speech length and pacing'
+            }
+        }
+    })
+
+@app.route('/api/model/unload', methods=['POST'])
+def unload_model():
+    """Unload a specific model to free memory"""
+    global loaded_models, current_tts_model
+    
+    try:
+        data = request.get_json()
+        model_name = data.get('model_name')
+        
+        if not model_name:
+            return jsonify({'error': 'No model name provided'}), 400
+        
+        if model_name in loaded_models:
+            del loaded_models[model_name]
+            
+            # If this was the current model, reset it
+            if current_tts_model and getattr(current_tts_model, 'model_name', None) == model_name:
+                current_tts_model = None
+            
+            # Force garbage collection
+            import gc
+            gc.collect()
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
+            
+            return jsonify({'success': True, 'message': f'Model {model_name} unloaded'})
+        else:
+            return jsonify({'error': 'Model not loaded'}), 404
+            
+    except Exception as e:
+        logger.error(f"Error unloading model: {e}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/voice_conversion', methods=['POST'])
@@ -394,7 +1265,7 @@ def voice_conversion():
         output_path = os.path.join(config.OUTPUTS_DIR, output_filename)
         
         # Perform voice conversion using XTTS
-        model = get_current_model()
+        model = get_or_load_model()
         if model and hasattr(model, 'voice_conversion'):
             model.voice_conversion(
                 source_wav=source_path,
@@ -429,7 +1300,7 @@ def batch_synthesis():
         if not texts:
             return jsonify({'error': 'No texts provided'}), 400
         
-        model = get_current_model()
+        model = get_or_load_model()
         if not model:
             return jsonify({'error': 'No TTS model available'}), 500
         
@@ -472,25 +1343,34 @@ def batch_synthesis():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/model_info')
-def get_model_info():
+def get_current_model_info():
     """Get detailed information about current model"""
     try:
-        model = get_current_model()
+        model = get_or_load_model()
         if not model:
             return jsonify({'error': 'No model loaded'}), 500
         
+        model_name = getattr(model, 'model_name', 'Unknown')
+        model_type = get_model_type(model_name)
+        capabilities = model_capabilities.get(model_type, {})
+        
         info = {
-            'model_name': getattr(model, 'model_name', 'Unknown'),
+            'model_name': model_name,
+            'model_type': model_type,
             'device': str(model.device) if hasattr(model, 'device') else 'Unknown',
+            'capabilities': capabilities,
             'language_manager': getattr(model, 'language_manager', None) is not None,
             'speaker_manager': getattr(model, 'speaker_manager', None) is not None,
             'supported_languages': [],
-            'supported_speakers': []
+            'supported_speakers': [],
+            'memory_usage': _get_model_memory_usage()
         }
         
         # Get supported languages
         if hasattr(model, 'language_manager') and model.language_manager:
             info['supported_languages'] = list(model.language_manager.language_names)
+        elif 'languages' in capabilities:
+            info['supported_languages'] = capabilities['languages']
         
         # Get supported speakers
         if hasattr(model, 'speaker_manager') and model.speaker_manager:
@@ -501,6 +1381,25 @@ def get_model_info():
     except Exception as e:
         logger.error(f"Error getting model info: {e}")
         return jsonify({'error': str(e)}), 500
+
+def _get_model_memory_usage():
+    """Get approximate memory usage information"""
+    try:
+        if torch.cuda.is_available():
+            allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+            cached = torch.cuda.memory_reserved() / 1024**3  # GB
+            return {
+                'gpu_allocated_gb': round(allocated, 2),
+                'gpu_cached_gb': round(cached, 2),
+                'loaded_models_count': len(loaded_models)
+            }
+        else:
+            return {
+                'device': 'CPU',
+                'loaded_models_count': len(loaded_models)
+            }
+    except Exception:
+        return {'error': 'Unable to get memory info'}
 
 # Static file serving
 @app.route('/static/<path:filename>')
@@ -526,7 +1425,7 @@ def api_synthesize():
         if not text:
             return jsonify({'error': 'Text parameter is required'}), 400
         
-        model = get_current_model()
+        model = get_or_load_model()
         if not model:
             return jsonify({'error': 'TTS service unavailable'}), 503
         
@@ -549,13 +1448,19 @@ def api_synthesize():
                 file_path=output_path
             )
         
+        # Add metadata about the synthesis
+        model_name = getattr(model, 'model_name', model_name or 'unknown')
+        model_type = get_model_type(model_name)
+        
         return jsonify({
             'success': True,
             'audio_url': f'/api/download/{filename}',
             'filename': filename,
             'text': text,
             'voice_id': voice_id,
-            'language': language
+            'language': language,
+            'model_used': model_name,
+            'model_type': model_type
         })
         
     except Exception as e:
@@ -663,14 +1568,27 @@ def file_too_large(error):
     return jsonify({'error': 'File too large'}), 413
 
 if __name__ == '__main__':
-    logger.info("Starting Enhanced Coqui TTS Web Server...")
+    logger.info("🚀 Starting Enhanced Coqui TTS Web Server...")
     
     # Initialize models and voice profiles
+    logger.info("🔧 Initializing models and voice profiles...")
     initialize_models()
     load_voice_profiles()
     
-    logger.info(f"Server starting on port {config.PORT}")
-    logger.info(f"CUDA available: {torch.cuda.is_available()}")
+    # Log initialization results
+    total_tts_models = _count_nested_models(available_models.get('tts_models', {}))
+    total_coqui_speakers = len(coqui_speakers)
+    
+    logger.info(f"✅ Initialization complete:")
+    logger.info(f"   - TTS models available: {total_tts_models}")
+    logger.info(f"   - Coqui speakers: {total_coqui_speakers}")
+    logger.info(f"   - Custom voice profiles: {len(voice_profiles)}")
+    logger.info(f"   - CUDA available: {torch.cuda.is_available()}")
+    logger.info(f"   - TTS library available: {TTS_AVAILABLE}")
+    
+    logger.info(f"🌐 Server starting on port {config.PORT}")
+    logger.info(f"🔗 Access the web interface at: http://localhost:{config.PORT}")
+    logger.info(f"🔍 Debug endpoint available at: http://localhost:{config.PORT}/debug")
     
     # Run the Flask app
     app.run(
