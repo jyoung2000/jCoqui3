@@ -679,12 +679,34 @@ def _get_mock_tts_model():
             """Generate a simple beep sound as placeholder"""
             try:
                 import numpy as np
+                
+                # Log what voice/speaker was requested for demo purposes
+                speaker = kwargs.get('speaker')
+                speaker_wav = kwargs.get('speaker_wav')
+                language = kwargs.get('language', 'en')
+                
+                if speaker:
+                    logger.info(f"Mock TTS: Generating speech for speaker '{speaker}' in {language}")
+                elif speaker_wav:
+                    logger.info(f"Mock TTS: Generating speech with voice clone from {speaker_wav}")
+                else:
+                    logger.info(f"Mock TTS: Generating speech with default voice in {language}")
+                
                 # Generate a simple tone (beep) as placeholder
                 sample_rate = 22050
                 duration = min(len(text) * 0.1, 3.0)  # Duration based on text length, max 3 seconds
                 t = np.linspace(0, duration, int(sample_rate * duration))
-                frequency = 440  # A4 note
-                audio = 0.3 * np.sin(2 * np.pi * frequency * t)
+                
+                # Vary frequency based on speaker/language for demo
+                base_frequency = 440  # A4 note
+                if speaker and 'female' in coqui_speakers.get(speaker, {}).get('gender', ''):
+                    base_frequency = 523  # Higher pitch for female voices
+                elif language == 'es':
+                    base_frequency = 493  # Different tone for Spanish
+                elif language == 'fr':
+                    base_frequency = 466  # Different tone for French
+                
+                audio = 0.3 * np.sin(2 * np.pi * base_frequency * t)
                 
                 # Add some variation based on text length
                 if len(text) > 50:
@@ -1118,8 +1140,9 @@ def get_unified_voices():
         unified_voices.extend(featured_models)
         
         # Add Coqui pre-trained speakers
+        logger.info(f"Adding {len(coqui_speakers)} Coqui speakers to unified voices")
         for speaker_name, speaker_info in coqui_speakers.items():
-            unified_voices.append({
+            speaker_voice = {
                 'id': f'coqui_{speaker_name.lower().replace(" ", "_")}',
                 'name': f'👤 {speaker_name}',
                 'type': 'coqui_speaker',
@@ -1131,7 +1154,9 @@ def get_unified_voices():
                 'category': 'Pre-trained Speakers',
                 'gender': speaker_info.get('gender'),
                 'accent': speaker_info.get('accent')
-            })
+            }
+            unified_voices.append(speaker_voice)
+            logger.debug(f"Added Coqui speaker: {speaker_name}")
         
         # Add custom voice profiles
         for voice_name, voice_info in voice_profiles.items():
@@ -1223,7 +1248,15 @@ def synthesize_speech():
         output_path = os.path.join(config.OUTPUTS_DIR, filename)
         
         # Determine model type for appropriate synthesis
-        model_type = get_model_type(getattr(model, 'model_name', model_name or 'unknown'))
+        actual_model_name = getattr(model, 'model_name', model_name or 'unknown')
+        
+        # If using mock model but a specific model was requested, use that for type detection
+        if actual_model_name == 'mock_tts_model' and model_name:
+            model_type = get_model_type(model_name)
+        else:
+            model_type = get_model_type(actual_model_name)
+            
+        logger.info(f"Using model type: {model_type} for synthesis")
         
         # Synthesize based on model type and parameters
         synthesis_kwargs = {
@@ -1235,16 +1268,26 @@ def synthesize_speech():
         if model_capabilities.get(model_type, {}).get('supports_multilingual'):
             synthesis_kwargs['language'] = language
         
-        # Voice selection priority: custom voice > coqui speaker > speaker ID
+        # Voice selection based on model capabilities
         if voice_profile and voice_profile in voice_profiles:
-            # Use custom cloned voice
-            synthesis_kwargs['speaker_wav'] = voice_profiles[voice_profile]['audio_path']
+            # Use custom cloned voice (works with XTTS v2)
+            if model_type in ['xtts_v2', 'your_tts']:
+                synthesis_kwargs['speaker_wav'] = voice_profiles[voice_profile]['audio_path']
+            else:
+                logger.warning(f"Custom voice not supported for model type: {model_type}")
         elif coqui_speaker and coqui_speaker in coqui_speakers:
-            # Use Coqui pre-trained speaker
-            synthesis_kwargs['speaker'] = coqui_speaker
+            # Use Coqui pre-trained speaker (only works with XTTS v2)
+            if model_type == 'xtts_v2':
+                synthesis_kwargs['speaker'] = coqui_speaker
+            else:
+                logger.warning(f"Coqui speaker '{coqui_speaker}' not supported for model type: {model_type}. Using default voice.")
         elif speaker_id:
             # Use speaker ID for multi-speaker models
-            synthesis_kwargs['speaker'] = speaker_id
+            model_caps = model_capabilities.get(model_type, {})
+            if model_caps.get('supports_speakers'):
+                synthesis_kwargs['speaker'] = speaker_id
+            else:
+                logger.warning(f"Speaker ID not supported for model type: {model_type}")
         
         # Add model-specific parameters
         if model_type == 'xtts_v2':

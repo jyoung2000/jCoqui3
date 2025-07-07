@@ -591,6 +591,8 @@
                 
                 console.log(`✅ Loaded ${data.total_count} total voices`);
                 console.log(`✅ Categories: ${data.categories.join(', ')}`);
+                console.log('🔍 Voice data structure:', data);
+                console.log('🎤 Coqui speakers found:', allVoices.filter(v => v.type === 'coqui_speaker').length);
                 
                 updateUnifiedVoiceSelect();
                 
